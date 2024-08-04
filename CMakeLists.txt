@@ -46,3 +46,7 @@ target_link_libraries(test_nvtx_cub_rmm_pool_stream_pinned PUBLIC OpenMP::OpenMP
 add_executable(test_nvtx_cub_rmm_pool_stream_pinned_direct test_nvtx_cub_rmm_pool_stream_pinned_direct.cu)
 target_compile_options(test_nvtx_cub_rmm_pool_stream_pinned_direct PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>)
 target_link_libraries(test_nvtx_cub_rmm_pool_stream_pinned_direct PUBLIC OpenMP::OpenMP_CXX rmm::rmm raft::raft)
+
+add_executable(test_nvtx_cub_rmm_pool_stream_pinned_graph test_nvtx_cub_rmm_pool_stream_pinned_graph.cu)
+target_compile_options(test_nvtx_cub_rmm_pool_stream_pinned_graph PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>)
+target_link_libraries(test_nvtx_cub_rmm_pool_stream_pinned_graph PUBLIC OpenMP::OpenMP_CXX rmm::rmm raft::raft)
