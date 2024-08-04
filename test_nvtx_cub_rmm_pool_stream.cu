@@ -5,8 +5,13 @@
 #include <algorithm>
 #include <raft/core/nvtx.hpp>
 #include <raft/core/device_span.hpp>
+#include <raft/core/handle.hpp>
 #include <cub/cub.cuh>
 #include <rmm/device_uvector.hpp>
+#include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
+
 
 #define CUDA_CHECK_ERROR(call) do { \
     cudaError_t err = call; \
@@ -16,6 +21,19 @@
         std::exit(EXIT_FAILURE); \
     } \
 } while (0)
+
+inline auto make_async() { return std::make_shared<rmm::mr::cuda_async_memory_resource>(); }
+inline auto make_pool()
+{
+  size_t free_mem, total_mem;
+  CUDA_CHECK_ERROR(cudaMemGetInfo(&free_mem, &total_mem));
+  size_t rmm_alloc_gran = 256;
+  double alloc_ratio    = 0.4;
+  // allocate 40%
+  size_t initial_pool_size = (size_t(free_mem * alloc_ratio) / rmm_alloc_gran) * rmm_alloc_gran;
+  return rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(make_async(),
+                                                                     initial_pool_size);
+}
 
 template <int TILE_WIDTH, int HISTO_SIZE>
 __global__ void computeMedian(raft::device_span<int> d_matrix, raft::device_span<int> d_median, int width, int height) {
@@ -60,6 +78,9 @@ int main() {
     constexpr auto NB_IMAGES = 3;
     constexpr auto INIT_VALUE = 4;
 
+    auto memory_resource = make_pool();
+    rmm::mr::set_current_device_resource(memory_resource.get());
+
     std::vector<std::vector<int>> h_matrices(NB_IMAGES, std::vector<int>(MATRIX_SIZE, 4));
     std::vector<std::vector<int>> h_medians(NB_IMAGES, std::vector<int>(NB_TILE_X * NB_TILE_Y));
 
@@ -70,20 +91,22 @@ int main() {
     {
         raft::common::nvtx::range fun_scope("Image compute");
 
+        const raft::handle_t handle{};
+
         int thread_id = omp_get_thread_num();
 
         raft::common::nvtx::push_range("Memory Allocation");
 
         // Allocate GPU memory
-        rmm::device_uvector<int> d_matrix(MATRIX_SIZE, rmm::cuda_stream_default);
-        rmm::device_uvector<int> d_median(NB_TILE_X * NB_TILE_Y, rmm::cuda_stream_default);
+        rmm::device_uvector<int> d_matrix(MATRIX_SIZE, handle.get_stream());
+        rmm::device_uvector<int> d_median(NB_TILE_X * NB_TILE_Y, handle.get_stream());
 
         raft::common::nvtx::pop_range();
 
         raft::common::nvtx::push_range("Memory Copy In");
 
         // Copy memory to GPU
-        CUDA_CHECK_ERROR(cudaMemcpy(d_matrix.data(), h_matrices[thread_id].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(d_matrix.data(), h_matrices[thread_id].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice, handle.get_stream()));
 
         raft::common::nvtx::pop_range();
 
@@ -92,21 +115,24 @@ int main() {
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
         dim3 gridSize((MATRIX_LEGNTH + blockSize.x - 1) / blockSize.x, (MATRIX_LEGNTH + blockSize.y - 1) / blockSize.y);
-        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(raft::device_span<int>{d_matrix.data(), d_matrix.size()}, raft::device_span<int>{d_median.data(), d_median.size()}, MATRIX_LEGNTH, MATRIX_LEGNTH);
+        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize, 0, handle.get_stream()>>>(raft::device_span<int>{d_matrix.data(), d_matrix.size()}, raft::device_span<int>{d_median.data(), d_median.size()}, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
-        CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
         raft::common::nvtx::pop_range();
 
         raft::common::nvtx::push_range("Memory Copy Out");
 
         // Copy results back to host
-        CUDA_CHECK_ERROR(cudaMemcpy(h_medians[thread_id].data(), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(h_medians[thread_id].data(), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost, handle.get_stream()));
 
         raft::common::nvtx::pop_range();
 
         raft::common::nvtx::pop_range();
+
+        CUDA_CHECK_ERROR(cudaStreamSynchronize(handle.get_stream()));
     }
+
+    CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
     raft::common::nvtx::pop_range();
 

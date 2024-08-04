@@ -3,7 +3,8 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <nvtx3/nvToolsExt.h>
+#include <raft/core/nvtx.hpp>
+#include <raft/core/device_span.hpp>
 
 #define CUDA_CHECK_ERROR(call) do { \
     cudaError_t err = call; \
@@ -15,7 +16,7 @@
 } while (0)
 
 template <int TILE_WIDTH, int HISTO_SIZE>
-__global__ void computeMedian(int *d_matrix, int *d_median, int width, int height) {
+__global__ void computeMedian(raft::device_span<int> d_matrix, raft::device_span<int> d_median, int width, int height) {
     const int x = threadIdx.x + blockIdx.x * blockDim.x;
     const int y = threadIdx.y + blockIdx.y * blockDim.y;
 
@@ -66,59 +67,62 @@ int main() {
     std::vector<std::vector<int>> h_matrices(NB_IMAGES, std::vector<int>(MATRIX_SIZE, 4));
     std::vector<std::vector<int>> h_medians(NB_IMAGES, std::vector<int>(NB_TILE_X * NB_TILE_Y));
 
+    raft::common::nvtx::push_range("Images compute");
 
 #pragma omp parallel for
     for (int i = 0; i < NB_IMAGES; ++i)
     {
-        nvtxRangePushA("Image compute");
+        raft::common::nvtx::range fun_scope("Image compute");
 
         int thread_id = omp_get_thread_num();
 
         int *d_matrix, *d_median;
 
-        nvtxRangePushA("Memory Allocation");
+        raft::common::nvtx::push_range("Memory Allocation");
 
         // Allocate GPU memory
         CUDA_CHECK_ERROR(cudaMalloc(&d_matrix, MATRIX_SIZE * sizeof(int)));
         CUDA_CHECK_ERROR(cudaMalloc(&d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int)));
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
 
-        nvtxRangePushA("Memory Copy In");
+        raft::common::nvtx::push_range("Memory Copy In");
 
         // Copy memory to GPU
         CUDA_CHECK_ERROR(cudaMemcpy(d_matrix, h_matrices[thread_id].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice));
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
 
-        nvtxRangePushA("Kernel");
+        raft::common::nvtx::push_range("Kernel");
 
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
         dim3 gridSize((MATRIX_LEGNTH + blockSize.x - 1) / blockSize.x, (MATRIX_LEGNTH + blockSize.y - 1) / blockSize.y);
-        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(d_matrix, d_median, MATRIX_LEGNTH, MATRIX_LEGNTH);
+        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(raft::device_span<int>{d_matrix, MATRIX_SIZE}, raft::device_span<int>{d_median, NB_TILE_X * NB_TILE_Y}, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
         CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
 
-        nvtxRangePushA("Memory Copy Out");
+        raft::common::nvtx::push_range("Memory Copy Out");
 
         // Copy results back to host
         CUDA_CHECK_ERROR(cudaMemcpy(h_medians[thread_id].data(), d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost));
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
 
-        nvtxRangePushA("Free");
+        raft::common::nvtx::push_range("Free");
 
         // Free GPU memory
         CUDA_CHECK_ERROR(cudaFree(d_matrix));
         CUDA_CHECK_ERROR(cudaFree(d_median));
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
 
-        nvtxRangePop();
+        raft::common::nvtx::pop_range();
     }
+
+    raft::common::nvtx::pop_range();
 
     for (int image = 0; image < NB_IMAGES; ++image)
     {

@@ -7,6 +7,10 @@
 #include <raft/core/device_span.hpp>
 #include <cub/cub.cuh>
 #include <rmm/device_uvector.hpp>
+#include <rmm/mr/device/cuda_async_memory_resource.hpp>
+#include <rmm/mr/device/owning_wrapper.hpp>
+#include <rmm/mr/device/pool_memory_resource.hpp>
+
 
 #define CUDA_CHECK_ERROR(call) do { \
     cudaError_t err = call; \
@@ -16,6 +20,19 @@
         std::exit(EXIT_FAILURE); \
     } \
 } while (0)
+
+inline auto make_async() { return std::make_shared<rmm::mr::cuda_async_memory_resource>(); }
+inline auto make_pool()
+{
+  size_t free_mem, total_mem;
+  CUDA_CHECK_ERROR(cudaMemGetInfo(&free_mem, &total_mem));
+  size_t rmm_alloc_gran = 256;
+  double alloc_ratio    = 0.4;
+  // allocate 40%
+  size_t initial_pool_size = (size_t(free_mem * alloc_ratio) / rmm_alloc_gran) * rmm_alloc_gran;
+  return rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(make_async(),
+                                                                     initial_pool_size);
+}
 
 template <int TILE_WIDTH, int HISTO_SIZE>
 __global__ void computeMedian(raft::device_span<int> d_matrix, raft::device_span<int> d_median, int width, int height) {
@@ -59,6 +76,9 @@ int main() {
     constexpr auto MATRIX_SIZE = MATRIX_LEGNTH * MATRIX_LEGNTH;
     constexpr auto NB_IMAGES = 3;
     constexpr auto INIT_VALUE = 4;
+
+    auto memory_resource = make_pool();
+    rmm::mr::set_current_device_resource(memory_resource.get());
 
     std::vector<std::vector<int>> h_matrices(NB_IMAGES, std::vector<int>(MATRIX_SIZE, 4));
     std::vector<std::vector<int>> h_medians(NB_IMAGES, std::vector<int>(NB_TILE_X * NB_TILE_Y));
