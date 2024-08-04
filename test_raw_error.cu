@@ -68,8 +68,6 @@ int main() {
 #pragma omp parallel for
     for (int i = 0; i < NB_IMAGES; ++i)
     {
-        int thread_id = omp_get_thread_num();
-
         int *d_matrix, *d_median;
 
         // Allocate GPU memory
@@ -77,7 +75,7 @@ int main() {
         CUDA_CHECK_ERROR(cudaMalloc(&d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int)));
 
         // Copy memory to GPU
-        CUDA_CHECK_ERROR(cudaMemcpy(d_matrix, h_matrices[thread_id].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice));
+        CUDA_CHECK_ERROR(cudaMemcpy(d_matrix, h_matrices[i].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice));
 
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
@@ -87,7 +85,7 @@ int main() {
         CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
         // Copy results back to host
-        CUDA_CHECK_ERROR(cudaMemcpy(h_medians[thread_id].data(), d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK_ERROR(cudaMemcpy(h_medians[i].data(), d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost));
 
         // Free GPU memory
         CUDA_CHECK_ERROR(cudaFree(d_matrix));

@@ -93,8 +93,6 @@ int main() {
 
         const raft::handle_t handle{};
 
-        int thread_id = omp_get_thread_num();
-
         raft::common::nvtx::push_range("Memory Allocation");
 
         // Allocate GPU memory
@@ -106,7 +104,7 @@ int main() {
         raft::common::nvtx::push_range("Memory Copy In");
 
         // Copy memory to GPU
-        CUDA_CHECK_ERROR(cudaMemcpyAsync(d_matrix.data(), h_matrices[thread_id].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice, handle.get_stream()));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(d_matrix.data(), h_matrices[i].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice, handle.get_stream()));
 
         raft::common::nvtx::pop_range();
 
@@ -123,7 +121,7 @@ int main() {
         raft::common::nvtx::push_range("Memory Copy Out");
 
         // Copy results back to host
-        CUDA_CHECK_ERROR(cudaMemcpyAsync(h_medians[thread_id].data(), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost, handle.get_stream()));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(h_medians[i].data(), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost, handle.get_stream()));
 
         raft::common::nvtx::pop_range();
 

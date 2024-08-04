@@ -104,10 +104,8 @@ int main() {
 
         const raft::handle_t handle{};
 
-        int thread_id = omp_get_thread_num();
-
-        const host_pinned_vector& d_matrix = h_matrices[thread_id];
-        host_pinned_vector& d_median = h_medians[thread_id];
+        const host_pinned_vector& d_matrix = h_matrices[i];
+        host_pinned_vector& d_median = h_medians[i];
 
         raft::common::nvtx::push_range("Kernel");
 
