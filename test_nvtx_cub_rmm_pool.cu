@@ -27,8 +27,8 @@ inline auto make_pool()
   size_t free_mem, total_mem;
   CUDA_CHECK_ERROR(cudaMemGetInfo(&free_mem, &total_mem));
   size_t rmm_alloc_gran = 256;
-  double alloc_ratio    = 0.4;
-  // allocate 40%
+  double alloc_ratio    = 0.8;
+  // 80% of the GPU memory is the recommanded amount
   size_t initial_pool_size = (size_t(free_mem * alloc_ratio) / rmm_alloc_gran) * rmm_alloc_gran;
   return rmm::mr::make_owning_wrapper<rmm::mr::pool_memory_resource>(make_async(),
                                                                      initial_pool_size);
