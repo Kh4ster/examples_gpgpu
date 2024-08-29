@@ -47,15 +47,7 @@ __global__ void computeMedian(raft::device_span<int> d_matrix, raft::device_span
         const int index = x + y * width;
 
         // Declare storage for CUB BlockRadixSort
-        typedef cub::BlockRadixSort<int,
-                                    TILE_WIDTH,
-                                    1,
-                                    cub::NullType,
-                                    4,
-                                    true,
-                                    cub::BLOCK_SCAN_WARP_SCANS,
-                                    cudaSharedMemBankSizeFourByte,
-                                    TILE_WIDTH> BlockRadixSort;
+        typedef cub::BlockRadixSort<int, TILE_WIDTH, 1> BlockRadixSort;
 
         __shared__ typename BlockRadixSort::TempStorage temp_storage;
 
