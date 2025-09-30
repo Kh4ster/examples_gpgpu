@@ -6,13 +6,13 @@
 #include <nvtx3/nvtx3.hpp>
 #include <cuda/std/span>
 #include <cuda/cmath>
-#include <raft/core/handle.hpp>
 #include <cub/cub.cuh>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/device/cuda_async_memory_resource.hpp>
 #include <rmm/mr/device/owning_wrapper.hpp>
 #include <rmm/mr/device/pool_memory_resource.hpp>
 #include <thrust/universal_vector.h>
+#include <cuda/stream>
 
 
 #define CUDA_CHECK_ERROR(call) do { \
@@ -82,20 +82,20 @@ int main() {
     {
         nvtx3::scoped_range fun_scope("Image compute");
 
-        const raft::handle_t handle{};
+        cuda::stream stream{cuda::device_ref{0}};
 
         nvtxRangePushA("Memory Allocation");
 
         // Allocate GPU memory
-        rmm::device_uvector<int> d_matrix(MATRIX_SIZE, handle.get_stream());
-        rmm::device_uvector<int> d_median(NB_TILE_X * NB_TILE_Y, handle.get_stream());
+        rmm::device_uvector<int> d_matrix(MATRIX_SIZE, stream.get());
+        rmm::device_uvector<int> d_median(NB_TILE_X * NB_TILE_Y, stream.get());
 
         nvtxRangePop();
 
         nvtxRangePushA("Memory Copy In");
 
         // Copy memory to GPU
-        CUDA_CHECK_ERROR(cudaMemcpyAsync(d_matrix.data(), thrust::raw_pointer_cast(h_matrices[i].data()), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice, handle.get_stream()));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(d_matrix.data(), thrust::raw_pointer_cast(h_matrices[i].data()), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice, stream.get()));
 
         nvtxRangePop();
 
@@ -104,7 +104,7 @@ int main() {
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
         dim3 gridSize(cuda::ceil_div(MATRIX_LEGNTH, blockSize.x), cuda::ceil_div(MATRIX_LEGNTH, blockSize.y));
-        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize, 0, handle.get_stream()>>>(cuda::std::span<int>{d_matrix.data(), d_matrix.size()}, cuda::std::span<int>{d_median.data(), d_median.size()}, MATRIX_LEGNTH, MATRIX_LEGNTH);
+        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize, 0, stream.get()>>>(cuda::std::span<int>{d_matrix.data(), d_matrix.size()}, cuda::std::span<int>{d_median.data(), d_median.size()}, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
 
         nvtxRangePop();
@@ -112,13 +112,13 @@ int main() {
         nvtxRangePushA("Memory Copy Out");
 
         // Copy results back to host
-        CUDA_CHECK_ERROR(cudaMemcpyAsync(thrust::raw_pointer_cast(h_medians[i].data()), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost, handle.get_stream()));
+        CUDA_CHECK_ERROR(cudaMemcpyAsync(thrust::raw_pointer_cast(h_medians[i].data()), d_median.data(), (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost, stream.get()));
 
         nvtxRangePop();
 
         nvtxRangePop();
 
-        CUDA_CHECK_ERROR(cudaStreamSynchronize(handle.get_stream()));
+        CUDA_CHECK_ERROR(cudaStreamSynchronize(stream.get()));
     }
 
     CUDA_CHECK_ERROR(cudaDeviceSynchronize());

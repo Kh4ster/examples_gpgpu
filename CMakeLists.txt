@@ -1,21 +1,24 @@
 cmake_minimum_required(VERSION 3.25)
 project(example_gpgpua LANGUAGES CXX CUDA)
 
+# Get the latest CCCL version
+# Necessary to use CPMAddPackage
+include(cmake/CPM.cmake)
 
-# Necessary to use rapids fetch package
-include(fetch_rapids.cmake)
-include(rapids-cmake)
-include(rapids-cpm)
-include(rapids-cuda)
-include(rapids-find)
-rapids_cpm_init()
+# Get the latest CCCL version
+CPMAddPackage(
+  NAME CCCL
+  GITHUB_REPOSITORY "nvidia/cccl"
+  GIT_TAG "main"
+)
 
-# Get the latest RMM, CCCM and RAFT version
-include(cmake/thirdparty/get_cccl.cmake)
-include(cmake/thirdparty/get_rmm.cmake)
-include(cmake/thirdparty/get_raft.cmake)
+CPMAddPackage(NAME rmm
+              GITHUB_REPOSITORY rapidsai/rmm
+              VERSION 25.12.00a
+              SOURCE_SUBDIR cpp
+              SYSTEM Off)
 
-# Get NVTX 
+
 CPMAddPackage(
     NAME NVTX
     GITHUB_REPOSITORY NVIDIA/NVTX
@@ -58,8 +61,9 @@ target_link_libraries(test_nvtx_cub_rmm_pool PUBLIC OpenMP::OpenMP_CXX rmm::rmm 
 
 add_executable(test_nvtx_cub_rmm_pool_stream test_nvtx_cub_rmm_pool_stream.cu)
 target_compile_options(test_nvtx_cub_rmm_pool_stream PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>)
-target_link_libraries(test_nvtx_cub_rmm_pool_stream PUBLIC OpenMP::OpenMP_CXX raft::raft rmm::rmm CCCL::CCCL nvtx3-cpp)
+target_link_libraries(test_nvtx_cub_rmm_pool_stream PUBLIC OpenMP::OpenMP_CXX rmm::rmm CCCL::CCCL nvtx3-cpp)
+
 
 add_executable(test_nvtx_cub_rmm_pool_stream_pinned test_nvtx_cub_rmm_pool_stream_pinned.cu)
 target_compile_options(test_nvtx_cub_rmm_pool_stream_pinned PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=${OpenMP_CXX_FLAGS}>)
-target_link_libraries(test_nvtx_cub_rmm_pool_stream_pinned PUBLIC OpenMP::OpenMP_CXX raft::raft rmm::rmm CCCL::CCCL nvtx3-cpp)
+target_link_libraries(test_nvtx_cub_rmm_pool_stream_pinned PUBLIC OpenMP::OpenMP_CXX rmm::rmm CCCL::CCCL nvtx3-cpp)
