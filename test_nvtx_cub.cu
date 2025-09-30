@@ -3,8 +3,9 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <raft/core/nvtx.hpp>
-#include <raft/core/device_span.hpp>
+#include <nvtx3/nvtx3.hpp>
+#include <cuda/std/span>
+#include <cuda/cmath>
 #include <cub/cub.cuh>
 
 #define CUDA_CHECK_ERROR(call) do { \
@@ -17,34 +18,36 @@
 } while (0)
 
 template <int TILE_WIDTH, int HISTO_SIZE>
-__global__ void computeMedian(raft::device_span<int> d_matrix, raft::device_span<int> d_median, int width, int height) {
+__global__ void computeMedian(cuda::std::span<int> d_matrix, cuda::std::span<int> d_median, int width, int height) {
     const int x = threadIdx.x + blockIdx.x * blockDim.x;
     const int y = threadIdx.y + blockIdx.y * blockDim.y;
 
-    if (x < width && y < height) {
-        const int index = x + y * width;
+    if (!(x < width && y < height))
+        return;
 
-        // Declare storage for CUB BlockRadixSort
-        typedef cub::BlockRadixSort<int, TILE_WIDTH, 1> BlockRadixSort;
+    const int index = x + y * width;
 
-        __shared__ typename BlockRadixSort::TempStorage temp_storage;
 
-        int thread_keys[1];
-        thread_keys[0] = d_matrix[index];
+    // Declare storage for CUB BlockRadixSort
+    typedef cub::BlockRadixSort<int, TILE_WIDTH, 1> BlockRadixSort;
 
-        // Perform block-level radix sort
-        BlockRadixSort(temp_storage).Sort(thread_keys);
+    __shared__ typename BlockRadixSort::TempStorage temp_storage;
 
-        if (threadIdx.x == TILE_WIDTH / 2 && threadIdx.x == TILE_WIDTH / 2) {
-            d_median[blockIdx.x + blockIdx.y * gridDim.x] = thread_keys[0];
-        }
+    int thread_keys[1];
+    thread_keys[0] = d_matrix[index];
+
+    // Perform block-level radix sort
+    BlockRadixSort(temp_storage).Sort(thread_keys);
+
+    if (threadIdx.x == TILE_WIDTH / 2 && threadIdx.x == TILE_WIDTH / 2) {
+        d_median[blockIdx.x + blockIdx.y * gridDim.x] = thread_keys[0];
     }
 }
 
 int main() {
     constexpr auto TILE_WIDTH = 32;
     constexpr auto HISTO_SIZE = 256;
-    constexpr auto NB_TILE_X = 250;
+    constexpr auto NB_TILE_X = 25;
     constexpr auto NB_TILE_Y = NB_TILE_X;
     constexpr auto MATRIX_LEGNTH = TILE_WIDTH * NB_TILE_X;
     constexpr auto MATRIX_SIZE = MATRIX_LEGNTH * MATRIX_LEGNTH;
@@ -54,60 +57,60 @@ int main() {
     std::vector<std::vector<int>> h_matrices(NB_IMAGES, std::vector<int>(MATRIX_SIZE, 4));
     std::vector<std::vector<int>> h_medians(NB_IMAGES, std::vector<int>(NB_TILE_X * NB_TILE_Y));
 
-    raft::common::nvtx::push_range("Images compute");
+    nvtxRangePushA("Images compute");
 
 #pragma omp parallel for
     for (int i = 0; i < NB_IMAGES; ++i)
     {
-        raft::common::nvtx::range fun_scope("Image compute");
+        nvtx3::scoped_range fun_scope("Image compute");
 
         int *d_matrix, *d_median;
 
-        raft::common::nvtx::push_range("Memory Allocation");
+        nvtxRangePushA("Memory Allocation");
 
         // Allocate GPU memory
         CUDA_CHECK_ERROR(cudaMalloc(&d_matrix, MATRIX_SIZE * sizeof(int)));
         CUDA_CHECK_ERROR(cudaMalloc(&d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int)));
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
 
-        raft::common::nvtx::push_range("Memory Copy In");
+        nvtxRangePushA("Memory Copy In");
 
         // Copy memory to GPU
         CUDA_CHECK_ERROR(cudaMemcpy(d_matrix, h_matrices[i].data(), MATRIX_SIZE * sizeof(int), cudaMemcpyHostToDevice));
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
 
-        raft::common::nvtx::push_range("Kernel");
+        nvtxRangePushA("Kernel");
 
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
-        dim3 gridSize((MATRIX_LEGNTH + blockSize.x - 1) / blockSize.x, (MATRIX_LEGNTH + blockSize.y - 1) / blockSize.y);
-        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(raft::device_span<int>{d_matrix, MATRIX_SIZE}, raft::device_span<int>{d_median, NB_TILE_X * NB_TILE_Y}, MATRIX_LEGNTH, MATRIX_LEGNTH);
+        dim3 gridSize(cuda::ceil_div(MATRIX_LEGNTH, blockSize.x), cuda::ceil_div(MATRIX_LEGNTH, blockSize.y));
+        computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(cuda::std::span<int>{d_matrix, MATRIX_SIZE}, cuda::std::span<int>{d_median, NB_TILE_X * NB_TILE_Y}, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
         CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
 
-        raft::common::nvtx::push_range("Memory Copy Out");
+        nvtxRangePushA("Memory Copy Out");
 
         // Copy results back to host
         CUDA_CHECK_ERROR(cudaMemcpy(h_medians[i].data(), d_median, (NB_TILE_X * NB_TILE_Y) * sizeof(int), cudaMemcpyDeviceToHost));
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
 
-        raft::common::nvtx::push_range("Free");
+        nvtxRangePushA("Free");
 
         // Free GPU memory
         CUDA_CHECK_ERROR(cudaFree(d_matrix));
         CUDA_CHECK_ERROR(cudaFree(d_median));
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
 
-        raft::common::nvtx::pop_range();
+        nvtxRangePop();
     }
 
-    raft::common::nvtx::pop_range();
+    nvtxRangePop();
 
     for (int image = 0; image < NB_IMAGES; ++image)
     {

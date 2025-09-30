@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cuda/cmath>
 
 #define CUDA_CHECK_ERROR(call) do { \
     cudaError_t err = call; \
@@ -54,7 +55,7 @@ __global__ void computeMedian(int *d_matrix, int *d_median, int width, int heigh
 int main() {
     constexpr auto TILE_WIDTH = 32;
     constexpr auto HISTO_SIZE = 256;
-    constexpr auto NB_TILE_X = 250;
+    constexpr auto NB_TILE_X = 25;
     constexpr auto NB_TILE_Y = NB_TILE_X;
     constexpr auto MATRIX_LEGNTH = TILE_WIDTH * NB_TILE_X;
     constexpr auto MATRIX_SIZE = MATRIX_LEGNTH * MATRIX_LEGNTH;
@@ -79,7 +80,7 @@ int main() {
 
         // Launch kernel
         dim3 blockSize(TILE_WIDTH, TILE_WIDTH);
-        dim3 gridSize((MATRIX_LEGNTH + blockSize.x - 1) / blockSize.x, (MATRIX_LEGNTH + blockSize.y - 1) / blockSize.y);
+        dim3 gridSize(cuda::ceil_div(MATRIX_LEGNTH, blockSize.x), cuda::ceil_div(MATRIX_LEGNTH, blockSize.y));
         computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(d_matrix, d_median, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
         CUDA_CHECK_ERROR(cudaDeviceSynchronize());
