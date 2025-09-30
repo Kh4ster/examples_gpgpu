@@ -86,7 +86,6 @@ int main() {
         dim3 gridSize(cuda::ceil_div(MATRIX_LEGNTH, blockSize.x), cuda::ceil_div(MATRIX_LEGNTH, blockSize.y));
         computeMedian<TILE_WIDTH, HISTO_SIZE><<<gridSize, blockSize>>>(cuda::std::span<int>{d_matrix.data(), d_matrix.size()}, cuda::std::span<int>{d_median.data(), d_median.size()}, MATRIX_LEGNTH, MATRIX_LEGNTH);
         CUDA_CHECK_ERROR(cudaGetLastError());
-        CUDA_CHECK_ERROR(cudaDeviceSynchronize());
 
         nvtxRangePop();
 
